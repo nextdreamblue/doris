@@ -98,6 +98,7 @@ import java.util.stream.Collectors;
 
 public class RestoreJob extends AbstractJob {
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
 
@@ -135,6 +136,7 @@ public class RestoreJob extends AbstractJob {
     private ReplicaAllocation replicaAlloc;
 
     private boolean reserveReplica = false;
+    private boolean reserveDynamicPartitionEnable = false;
 
     // this 2 members is to save all newly restored objs
     // tbl name -> part
@@ -166,8 +168,8 @@ public class RestoreJob extends AbstractJob {
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
-            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica, Env env,
-            long repoId) {
+            ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
+            boolean reserveDynamicPartitionEnable, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -176,7 +178,9 @@ public class RestoreJob extends AbstractJob {
         this.state = RestoreJobState.PENDING;
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
+        this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
+        properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
     }
 
     public RestoreJobState getState() {
@@ -666,7 +670,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // Reset properties to correct values.
-                    remoteOlapTbl.resetPropertiesForRestore();
+                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -1563,6 +1567,7 @@ public class RestoreJob extends AbstractJob {
                 + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
+        info.add(String.valueOf(reserveDynamicPartitionEnable));
         return info;
     }
 
@@ -1894,6 +1899,7 @@ public class RestoreJob extends AbstractJob {
             properties.put(key, value);
         }
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
+        reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
     }
 
     @Override
