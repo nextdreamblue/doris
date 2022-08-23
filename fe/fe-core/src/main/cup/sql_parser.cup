@@ -245,7 +245,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT, KW_COMPLETE,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DATEV2, KW_DATETIMEV2, KW_DAY, KW_DECIMAL, KW_DECIMALV3, KW_DECOMMISSION, KW_DEFAULT, KW_DEFERRED, KW_DEMAND, KW_DESC, KW_DESCRIBE,
-    KW_DELETE, KW_UPDATE, KW_DIAGNOSE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
+    KW_DELETE, KW_UPDATE, KW_DIAGNOSE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPPED, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
     KW_EXISTS, KW_EXPORT, KW_EXTENDED, KW_EXTERNAL, KW_EXTRACT,
     KW_FAST, KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIELDS, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
@@ -446,6 +446,7 @@ nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
 nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
+nonterminal Long opt_id;
 
 nonterminal PartitionKeyDesc partition_key_desc;
 nonterminal PartitionKeyDesc list_partition_key_desc;
@@ -2237,17 +2238,17 @@ drop_stmt ::=
 
 // Recover statement
 recover_stmt ::=
-    KW_RECOVER KW_DATABASE ident:dbName
+    KW_RECOVER KW_DATABASE ident:dbName opt_id:dbId opt_table_alias:alias
     {:
-        RESULT = new RecoverDbStmt(dbName);
+        RESULT = new RecoverDbStmt(dbName, dbId, alias);
     :}
-    | KW_RECOVER KW_TABLE table_name:dbTblName
+    | KW_RECOVER KW_TABLE table_name:dbTblName opt_id:tableId opt_table_alias:alias
     {:
-        RESULT = new RecoverTableStmt(dbTblName);
+        RESULT = new RecoverTableStmt(dbTblName, tableId, alias);
     :}
-    | KW_RECOVER KW_PARTITION ident:partitionName KW_FROM table_name:dbTblName
+    | KW_RECOVER KW_PARTITION ident:partitionName opt_id:partitionId opt_table_alias:alias KW_FROM table_name:dbTblName
     {:
-        RESULT = new RecoverPartitionStmt(dbTblName, partitionName);
+        RESULT = new RecoverPartitionStmt(dbTblName, partitionName, partitionId, alias);
     :}
     ;
 
@@ -3104,6 +3105,10 @@ show_param ::=
     {:
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
+    | KW_DROPPED opt_wild_where
+    {:
+        RESULT = new ShowDroppedStmt(parser.where);
+    :}
     ;
 
 opt_tmp ::=
@@ -3221,6 +3226,17 @@ opt_wild_where ::=
         parser.where = where;
     :}
     ;
+
+opt_id ::=
+    /* empty */
+    {:
+        RESULT = (long)-1;
+    :}
+    | INTEGER_LITERAL:id
+    {:
+        RESULT = id;
+    :}
+    ;    
 
 opt_alter_type ::=
     KW_ROLLUP
@@ -6094,6 +6110,8 @@ keyword ::=
     | KW_CATALOG:id
     {: RESULT = id; :}
     | KW_CATALOGS:id
+    {: RESULT = id; :}
+    | KW_DROPPED:id
     {: RESULT = id; :}
     ;
 

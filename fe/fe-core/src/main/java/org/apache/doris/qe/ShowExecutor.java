@@ -46,6 +46,7 @@ import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
+import org.apache.doris.analysis.ShowDroppedStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
@@ -361,6 +362,8 @@ public class ShowExecutor {
             handleShowCatalogs();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
+        } else if (stmt instanceof ShowDroppedStmt) {
+            handleShowDropped();
         } else {
             handleEmtpy();
         }
@@ -1751,6 +1754,14 @@ public class ShowExecutor {
                 .map(job -> (RestoreJob) job).collect(Collectors.toList());
 
         List<List<String>> infos = restoreJobs.stream().map(RestoreJob::getInfo).collect(Collectors.toList());
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleShowDropped() throws AnalysisException {
+        ShowDroppedStmt showStmt = (ShowDroppedStmt) stmt;
+
+        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo();
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }

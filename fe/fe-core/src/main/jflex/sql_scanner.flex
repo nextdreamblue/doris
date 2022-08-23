@@ -187,6 +187,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("div", new Integer(SqlParserSymbols.KW_DIV));
         keywordMap.put("double", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("drop", new Integer(SqlParserSymbols.KW_DROP));
+        keywordMap.put("dropped", new Integer(SqlParserSymbols.KW_DROPPED));
         keywordMap.put("dropp", new Integer(SqlParserSymbols.KW_DROPP));
         keywordMap.put("duplicate", new Integer(SqlParserSymbols.KW_DUPLICATE));
         keywordMap.put("dynamic", new Integer(SqlParserSymbols.KW_DYNAMIC));

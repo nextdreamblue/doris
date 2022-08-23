@@ -610,11 +610,18 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
         // check is new db with same name already exist
-        if (getDb(recoverStmt.getDbName()).isPresent()) {
-            throw new DdlException("Database[" + recoverStmt.getDbName() + "] already exist.");
+        String newDbName = recoverStmt.getNewDbName();
+        if (!Strings.isNullOrEmpty(newDbName)) {
+            if (getDb(newDbName).isPresent()) {
+                throw new DdlException("Database[" + newDbName + "] already exist.");
+            }
+        } else {
+            if (getDb(recoverStmt.getDbName()).isPresent()) {
+                throw new DdlException("Database[" + recoverStmt.getDbName() + "] already exist.");
+            }
         }
 
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName());
+        Database db = Env.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId());
 
         // add db to catalog
         if (!tryLock(false)) {
@@ -624,10 +631,18 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Table> tableList = db.getTablesOnIdOrder();
         MetaLockUtils.writeLockTables(tableList);
         try {
-            if (fullNameToDb.containsKey(db.getFullName())) {
-                throw new DdlException("Database[" + db.getFullName() + "] already exist.");
-                // it's ok that we do not put db back to CatalogRecycleBin
-                // cause this db cannot recover any more
+            if (!Strings.isNullOrEmpty(recoverStmt.getNewDbName())) {
+                if (fullNameToDb.containsKey(newDbName)) {
+                    throw new DdlException("Database[" + newDbName + "] already exist.");
+                    // it's ok that we do not put db back to CatalogRecycleBin
+                    // cause this db cannot recover any more
+                }
+            } else {
+                if (fullNameToDb.containsKey(db.getFullName())) {
+                    throw new DdlException("Database[" + db.getFullName() + "] already exist.");
+                    // it's ok that we do not put db back to CatalogRecycleBin
+                    // cause this db cannot recover any more
+                }
             }
 
             fullNameToDb.put(db.getFullName(), db);
@@ -658,7 +673,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (db.getTable(tableName).isPresent()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName)) {
+            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, recoverStmt.getTableId())) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
@@ -679,7 +694,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("partition[" + partitionName + "] already exist in table[" + tableName + "]");
             }
 
-            Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName);
+            Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName,
+                    recoverStmt.getPartitionId());
         } finally {
             olapTable.writeUnlock();
         }
