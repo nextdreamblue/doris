@@ -170,6 +170,7 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -673,7 +674,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (db.getTable(tableName).isPresent()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, recoverStmt.getTableId())) {
+            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, recoverStmt.getTableId(),
+                    recoverStmt.getNewTableName())) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {

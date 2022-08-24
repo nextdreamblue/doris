@@ -31,6 +31,7 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -399,7 +400,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (Env.isStoredTableNamesLowerCase()) {
                     newTableName = newTableName.toLowerCase();
                 }
-                if (!oldTableName.equals(newTableName)) {
+                if (!tableName.equals(newTableName)) {
                     // check if name is already used
                     if (db.getTable(newTableName).isPresent()) {
                         throw new DdlException("Table name[" + newTableName + "] is already used");

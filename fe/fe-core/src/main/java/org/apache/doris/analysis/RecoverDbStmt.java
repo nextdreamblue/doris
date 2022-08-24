@@ -63,7 +63,6 @@ public class RecoverDbStmt extends DdlStmt {
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
 
         if (!Strings.isNullOrEmpty(newDbName)) {
-            FeNameFormat.checkDbName(newDbName);
             newDbName = ClusterNamespace.getFullName(getClusterName(), newDbName);
         }
 
