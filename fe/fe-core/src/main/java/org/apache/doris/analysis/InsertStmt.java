@@ -458,8 +458,20 @@ public class InsertStmt extends DdlStmt {
             if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
                 SlotRef refColumn = column.getRefColumn();
                 if (refColumn == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
-                            column.getName(), targetTable.getName());
+                    //may be column's name is prefix with 'mv_', but not materialized view column
+                    boolean isBaseColumn = false;
+                    for (Column col : targetTable.getBaseSchema()) {
+                        if (col.nameEquals(column.getName(), false)) {
+                            isBaseColumn = true;
+                            break;
+                        }
+                    }
+                    if (isBaseColumn) {
+                        continue;
+                    } else {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
+                                column.getName(), targetTable.getName());
+                    }
                 }
                 String origName = refColumn.getColumnName();
                 for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
