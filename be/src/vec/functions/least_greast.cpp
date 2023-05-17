@@ -33,8 +33,72 @@ struct CompareMultiImpl {
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) { return arguments[0]; }
 
-    template <typename ColumnType>
-    static void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_column,
+    static ColumnPtr execute(Block& block, const ColumnNumbers& arguments,
+                             size_t input_rows_count) {
+        if (arguments.size() == 1) {
+            return block.get_by_position(arguments.back()).column;
+        }
+
+        const auto& data_type = block.get_by_position(arguments.back()).type;
+        MutableColumnPtr result_column = data_type->create_column();
+
+        Columns cols(arguments.size());
+        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(arguments.size());
+        for (int i = 0; i < arguments.size(); ++i) {
+            std::tie(cols[i], col_const[i]) =
+                    unpack_if_const(block.get_by_position(arguments[i]).column);
+        }
+        // because now the string types does not support random position writing,
+        // so insert into result data have two methods, one is for string types, one is for others type remaining
+        if (result_column->is_column_string()) {
+            result_column->reserve(input_rows_count);
+            const auto& column_string = reinterpret_cast<const ColumnString&>(*cols[0]);
+            auto& column_res = reinterpret_cast<ColumnString&>(*result_column);
+
+            for (int i = 0; i < input_rows_count; ++i) {
+                auto str_data = column_string.get_data_at(index_check_const(i, col_const[0]));
+                for (int cmp_col = 1; cmp_col < arguments.size(); ++cmp_col) {
+                    auto temp_data = assert_cast<const ColumnString&>(*cols[cmp_col])
+                                             .get_data_at(index_check_const(i, col_const[cmp_col]));
+                    str_data = Op<StringRef, StringRef>::apply(temp_data, str_data) ? temp_data
+                                                                                    : str_data;
+                }
+                column_res.insert_data(str_data.data, str_data.size);
+            }
+
+        } else {
+            if (col_const[0]) {
+                for (int i = 0; i < input_rows_count; ++i) {
+                    result_column->insert_range_from(*(cols[0]), 0, 1);
+                }
+            } else {
+                result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
+            }
+            WhichDataType which(data_type);
+
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
+    if (which.idx == TypeIndex::TYPE) {                                                           \
+        for (int i = 1; i < arguments.size(); ++i) {                                              \
+            if (col_const[i]) {                                                                   \
+                insert_result_data<COLUMN_TYPE, true>(result_column, cols[i], input_rows_count);  \
+            } else {                                                                              \
+                insert_result_data<COLUMN_TYPE, false>(result_column, cols[i], input_rows_count); \
+            }                                                                                     \
+        }                                                                                         \
+    }
+            NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
+            DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
+            TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
+#undef DISPATCH
+        }
+
+        return result_column;
+    }
+
+private:
+    template <typename ColumnType, bool ArgConst>
+    static void insert_result_data(const MutableColumnPtr& result_column,
+                                   const ColumnPtr& argument_column,
                                    const size_t input_rows_count) {
         auto* __restrict result_raw_data =
                 reinterpret_cast<ColumnType*>(result_column.get())->get_data().data();
