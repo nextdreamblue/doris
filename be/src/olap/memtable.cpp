@@ -510,7 +510,10 @@ Status MemTable::flush() {
 
 Status MemTable::_do_flush() {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    size_t same_keys_num = _sort();
+    size_t same_keys_num = 0;
+    if (_keys_type != KeysType::DUP_KEYS || _schema->num_key_columns() != 0) {
+        same_keys_num = _sort();
+    }
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
         if (_keys_type == KeysType::DUP_KEYS && _schema->num_key_columns() == 0) {
             _output_mutable_block.swap(_input_mutable_block);
