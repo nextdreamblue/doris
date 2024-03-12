@@ -440,7 +440,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a backup job
         BackupJob backupJob = new BackupJob(stmt.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), env, repoId);
+                tblRefs, stmt.getTimeoutMs(), stmt.getContent(), stmt.reserveColocateWith(), env, repoId);
         // write log
         env.getEditLog().logBackupJob(backupJob);
 
@@ -495,7 +495,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                         db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                         stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(),
-                        stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
+                        stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.reserveColocateWith(),
                         env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
             } catch (IOException e) {
                 throw new DdlException(e.getMessage());
@@ -504,7 +504,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), env, repository.getId());
+                stmt.isBeingSynced(), stmt.reserveColocateWith(), env, repository.getId());
         }
 
         env.getEditLog().logRestoreJob(restoreJob);

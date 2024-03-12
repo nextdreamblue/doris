@@ -39,6 +39,7 @@ public class RestoreStmt extends AbstractBackupStmt {
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    private static final String PROP_RESERVE_COLOCATE_WITH = "reserve_colocate_with";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     private boolean allowLoad = false;
@@ -47,6 +48,7 @@ public class RestoreStmt extends AbstractBackupStmt {
     private int metaVersion = -1;
     private boolean reserveReplica = false;
     private boolean reserveDynamicPartitionEnable = false;
+    private boolean reserveColocateWith = false;
     private boolean isLocal = false;
     private boolean isBeingSynced = false;
     private byte[] meta = null;
@@ -86,6 +88,10 @@ public class RestoreStmt extends AbstractBackupStmt {
 
     public boolean reserveDynamicPartitionEnable() {
         return reserveDynamicPartitionEnable;
+    }
+
+    public boolean reserveColocateWith() {
+        return reserveColocateWith;
     }
 
     public boolean isLocal() {
@@ -182,6 +188,19 @@ public class RestoreStmt extends AbstractBackupStmt {
                         + copiedProperties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
             }
             copiedProperties.remove(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE);
+        }
+        // reserve colocate with
+        if (copiedProperties.containsKey(PROP_RESERVE_COLOCATE_WITH)) {
+            if (copiedProperties.get(PROP_RESERVE_COLOCATE_WITH).equalsIgnoreCase("true")) {
+                reserveColocateWith = true;
+            } else if (copiedProperties.get(PROP_RESERVE_COLOCATE_WITH).equalsIgnoreCase("false")) {
+                reserveColocateWith = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve colocate with value: "
+                        + copiedProperties.get(PROP_RESERVE_COLOCATE_WITH));
+            }
+            copiedProperties.remove(PROP_RESERVE_COLOCATE_WITH);
         }
         // backup timestamp
         if (copiedProperties.containsKey(PROP_BACKUP_TIMESTAMP)) {

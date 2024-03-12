@@ -107,6 +107,7 @@ import java.util.stream.Collectors;
 public class RestoreJob extends AbstractJob {
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
+    private static final String PROP_RESERVE_COLOCATE_WITH = "reserve_colocate_with";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -146,6 +147,7 @@ public class RestoreJob extends AbstractJob {
 
     private boolean reserveReplica = false;
     private boolean reserveDynamicPartitionEnable = false;
+    private boolean reserveColocateWith = false;
 
     // this 2 members is to save all newly restored objs
     // tbl name -> part
@@ -181,7 +183,8 @@ public class RestoreJob extends AbstractJob {
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, Env env, long repoId) {
+            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean reserveColocateWith,
+            Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -191,17 +194,20 @@ public class RestoreJob extends AbstractJob {
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         this.reserveDynamicPartitionEnable = reserveDynamicPartitionEnable;
+        this.reserveColocateWith = reserveColocateWith;
         this.isBeingSynced = isBeingSynced;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
         properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
+        properties.put(PROP_RESERVE_COLOCATE_WITH, String.valueOf(reserveColocateWith));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
-            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, Env env, long repoId, BackupMeta backupMeta) {
+            boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean reserveColocateWith,
+            Env env, long repoId, BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, isBeingSynced, env, repoId);
+                reserveDynamicPartitionEnable, isBeingSynced, reserveColocateWith, env, repoId);
         this.backupMeta = backupMeta;
     }
 
@@ -726,7 +732,7 @@ public class RestoreJob extends AbstractJob {
 
                     // Reset properties to correct values.
                     remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
-                                                            replicaAlloc, isBeingSynced);
+                                                            replicaAlloc, isBeingSynced, reserveColocateWith);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -1848,6 +1854,7 @@ public class RestoreJob extends AbstractJob {
         info.add(replicaAlloc.toCreateStmt());
         info.add(String.valueOf(reserveReplica));
         info.add(String.valueOf(reserveDynamicPartitionEnable));
+        info.add(String.valueOf(reserveColocateWith));
         if (!isBrief) {
             info.add(getRestoreObjs());
         }
@@ -2206,6 +2213,7 @@ public class RestoreJob extends AbstractJob {
         reserveReplica = Boolean.parseBoolean(properties.get(PROP_RESERVE_REPLICA));
         reserveDynamicPartitionEnable = Boolean.parseBoolean(properties.get(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE));
         isBeingSynced = Boolean.parseBoolean(properties.get(PROP_IS_BEING_SYNCED));
+        reserveColocateWith =  Boolean.parseBoolean(properties.get(PROP_RESERVE_COLOCATE_WITH));
     }
 
     @Override

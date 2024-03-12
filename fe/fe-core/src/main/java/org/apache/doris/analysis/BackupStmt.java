@@ -30,6 +30,7 @@ import java.util.Map;
 public class BackupStmt extends AbstractBackupStmt {
     private static final String PROP_TYPE = "type";
     public static final String PROP_CONTENT = "content";
+    public static final String PROP_RESERVE_COLOCATE_WITH = "reserve_colocate_with";
 
     public enum BackupType {
         INCREMENTAL, FULL
@@ -41,6 +42,7 @@ public class BackupStmt extends AbstractBackupStmt {
 
     private BackupType type = BackupType.FULL;
     private BackupContent content = BackupContent.ALL;
+    private boolean reserveColocateWith = false;
 
 
     public BackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
@@ -54,6 +56,10 @@ public class BackupStmt extends AbstractBackupStmt {
 
     public BackupType getType() {
         return type;
+    }
+
+    public boolean reserveColocateWith() {
+        return reserveColocateWith;
     }
 
     public BackupContent getContent() {
@@ -101,6 +107,19 @@ public class BackupStmt extends AbstractBackupStmt {
                         "Invalid backup job content:" + contentProp);
             }
             copiedProperties.remove(PROP_CONTENT);
+        }
+        // reserve colocate with
+        if (copiedProperties.containsKey(PROP_RESERVE_COLOCATE_WITH)) {
+            if (copiedProperties.get(PROP_RESERVE_COLOCATE_WITH).equalsIgnoreCase("true")) {
+                reserveColocateWith = true;
+            } else if (copiedProperties.get(PROP_RESERVE_COLOCATE_WITH).equalsIgnoreCase("false")) {
+                reserveColocateWith = false;
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid reserve colocate with value: "
+                        + copiedProperties.get(PROP_RESERVE_COLOCATE_WITH));
+            }
+            copiedProperties.remove(PROP_RESERVE_COLOCATE_WITH);
         }
 
         if (!copiedProperties.isEmpty()) {

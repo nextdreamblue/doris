@@ -51,6 +51,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
+import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
@@ -548,7 +549,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
-                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
+                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced,
+                                          boolean reserveColocateWith) {
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
@@ -561,13 +563,30 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
         // remove colocate property.
-        setColocateGroup(null);
+        if (!reserveColocateWith) {
+            setColocateGroup(null);
+        }
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
                                      boolean reserveReplica) {
         // table id
         id = env.getNextId();
+
+        try {
+            String colocateGroup = getColocateGroup();
+            String fullGroupName = ColocateTableIndex.GroupId.getFullGroupName(db.getId(), colocateGroup);
+            ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
+            if (groupSchema != null) {
+                // group already exist, check if this table can be added to this group
+                groupSchema.checkColocateSchema(this);
+                groupSchema.checkDynamicPartition(getTableProperty().getProperties(), getDefaultDistributionInfo());
+            }
+            Env.getCurrentColocateIndex()
+                    .addTableToGroup(db.getId(), this, fullGroupName, null /* generate group id inside */);
+        } catch (DdlException e) {
+            return new Status(ErrCode.COMMON_ERROR, e.getMessage());
+        }
 
         // copy an origin index id to name map
         Map<Long, String> origIdxIdToName = Maps.newHashMap();
@@ -618,6 +637,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
 
+        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
+        ColocateTableIndex.GroupId groupId = null;
+        if (colocateIndex.isColocateTable(id)) {
+            groupId = colocateIndex.getGroup(id);
+            backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+        }
+
+        // chooseBackendsArbitrary is true, means this may be the first table of colocation group,
+        // or this is just a normal table, and we can choose backends arbitrary.
+        // otherwise, backends should be chosen from backendsPerBucketSeq;
+        boolean chooseBackendsArbitrary = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
+        if (chooseBackendsArbitrary) {
+            backendsPerBucketSeq = Maps.newHashMap();
+        }
+
         // for each partition, reset rollup index map
         Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
@@ -645,10 +680,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
                     // replicas
                     try {
-                        Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
-                                Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
-                                        replicaAlloc, nextIndexs, null, false, false);
-                        Map<Tag, List<Long>> tag2beIds = tag2beIdsAndMedium.first;
+                        // get BackendIds
+                        Map<Tag, List<Long>> tag2beIds;
+                        if (chooseBackendsArbitrary) {
+                            // This is the first colocate table in the group, or just a normal table,
+                            // choose backends
+                            Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
+                                    Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
+                                    replicaAlloc, nextIndexs, null, false, false);
+                            tag2beIds = tag2beIdsAndMedium.first;
+                            for (Map.Entry<Tag, List<Long>> entry1 : tag2beIds.entrySet()) {
+                                backendsPerBucketSeq.putIfAbsent(entry1.getKey(), Lists.newArrayList());
+                                backendsPerBucketSeq.get(entry1.getKey()).add(entry1.getValue());
+                            }
+                        } else {
+                            // get backends from existing backend sequence
+                            tag2beIds = Maps.newHashMap();
+                            for (Map.Entry<Tag, List<List<Long>>> entry1 : backendsPerBucketSeq.entrySet()) {
+                                tag2beIds.put(entry1.getKey(), entry1.getValue().get(i));
+                            }
+                        }
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -665,6 +716,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
             // reset partition id
             partition.setIdForRestore(entry.getKey());
+        }
+
+        if (groupId != null && chooseBackendsArbitrary) {
+            colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+            ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+            Env.getCurrentEnv().getEditLog().logColocateBackendsPerBucketSeq(info);
         }
 
         return Status.OK;

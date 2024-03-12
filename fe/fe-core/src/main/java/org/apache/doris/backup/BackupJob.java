@@ -120,16 +120,20 @@ public class BackupJob extends AbstractJob {
     private byte[] metaInfoBytes = null;
     private byte[] jobInfoBytes = null;
 
+    private boolean reserveColocateWith = false;
+
     public BackupJob() {
         super(JobType.BACKUP);
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId) {
+                     BackupContent content, boolean reserveColocateWith, Env env, long repoId) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
+        this.reserveColocateWith = reserveColocateWith;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
+        properties.put(BackupStmt.PROP_RESERVE_COLOCATE_WITH, String.valueOf(reserveColocateWith));
     }
 
     public BackupJobState getState() {
@@ -605,7 +609,9 @@ public class BackupJob extends AbstractJob {
     private void removeUnsupportProperties(OlapTable tbl) {
         // We cannot support the colocate attribute because the colocate information is not backed up
         // synchronously when backing up.
-        tbl.setColocateGroup(null);
+        if (!reserveColocateWith) {
+            tbl.setColocateGroup(null);
+        }
     }
 
     private void waitingAllSnapshotsFinished() {
@@ -1058,6 +1064,7 @@ public class BackupJob extends AbstractJob {
             String value = Text.readString(in);
             properties.put(key, value);
         }
+        reserveColocateWith =  Boolean.parseBoolean(properties.get(BackupStmt.PROP_RESERVE_COLOCATE_WITH));
     }
 
     @Override
