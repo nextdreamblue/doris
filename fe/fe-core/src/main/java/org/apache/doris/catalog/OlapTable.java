@@ -569,23 +569,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     public Status resetIdsForRestore(Env env, Database db, ReplicaAllocation restoreReplicaAlloc,
-                                     boolean reserveReplica) {
+                                     boolean reserveReplica, boolean reserveColocateWith) {
         // table id
         id = env.getNextId();
 
-        try {
-            String colocateGroup = getColocateGroup();
-            String fullGroupName = ColocateTableIndex.GroupId.getFullGroupName(db.getId(), colocateGroup);
-            ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
-            if (groupSchema != null) {
-                // group already exist, check if this table can be added to this group
-                groupSchema.checkColocateSchema(this);
-                groupSchema.checkDynamicPartition(getTableProperty().getProperties(), getDefaultDistributionInfo());
+        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        if (reserveColocateWith) {
+            try {
+                String colocateGroup = getColocateGroup();
+                String fullGroupName = ColocateTableIndex.GroupId.getFullGroupName(db.getId(), colocateGroup);
+                ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(fullGroupName);
+                if (groupSchema != null) {
+                    // group already exist, check if this table can be added to this group
+                    groupSchema.checkColocateSchema(this);
+                    groupSchema.checkDynamicPartition(getTableProperty().getProperties(), getDefaultDistributionInfo());
+                }
+                colocateIndex.addTableToGroup(db.getId(), this, fullGroupName, null /* generate group id inside */);
+            } catch (DdlException e) {
+                colocateIndex.removeTable(id);
+                return new Status(ErrCode.COMMON_ERROR, e.getMessage());
             }
-            Env.getCurrentColocateIndex()
-                    .addTableToGroup(db.getId(), this, fullGroupName, null /* generate group id inside */);
-        } catch (DdlException e) {
-            return new Status(ErrCode.COMMON_ERROR, e.getMessage());
         }
 
         // copy an origin index id to name map
@@ -637,20 +640,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             }
         }
 
-        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
         ColocateTableIndex.GroupId groupId = null;
-        if (colocateIndex.isColocateTable(id)) {
-            groupId = colocateIndex.getGroup(id);
-            backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
-        }
+        boolean chooseBackendsArbitrary = false;
+        if (reserveColocateWith) {
+            if (colocateIndex.isColocateTable(id)) {
+                groupId = colocateIndex.getGroup(id);
+                backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+            }
 
-        // chooseBackendsArbitrary is true, means this may be the first table of colocation group,
-        // or this is just a normal table, and we can choose backends arbitrary.
-        // otherwise, backends should be chosen from backendsPerBucketSeq;
-        boolean chooseBackendsArbitrary = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
-        if (chooseBackendsArbitrary) {
-            backendsPerBucketSeq = Maps.newHashMap();
+            // chooseBackendsArbitrary is true, means this may be the first table of colocation group,
+            // or this is just a normal table, and we can choose backends arbitrary.
+            // otherwise, backends should be chosen from backendsPerBucketSeq;
+            chooseBackendsArbitrary = backendsPerBucketSeq == null || backendsPerBucketSeq.isEmpty();
+            if (chooseBackendsArbitrary) {
+                backendsPerBucketSeq = Maps.newHashMap();
+            }
         }
 
         // for each partition, reset rollup index map
@@ -682,16 +687,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                     try {
                         // get BackendIds
                         Map<Tag, List<Long>> tag2beIds;
-                        if (chooseBackendsArbitrary) {
+                        if (!reserveColocateWith || chooseBackendsArbitrary) {
                             // This is the first colocate table in the group, or just a normal table,
                             // choose backends
                             Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                     Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                     replicaAlloc, nextIndexs, null, false, false);
                             tag2beIds = tag2beIdsAndMedium.first;
-                            for (Map.Entry<Tag, List<Long>> entry1 : tag2beIds.entrySet()) {
-                                backendsPerBucketSeq.putIfAbsent(entry1.getKey(), Lists.newArrayList());
-                                backendsPerBucketSeq.get(entry1.getKey()).add(entry1.getValue());
+                            if (reserveColocateWith) {
+                                for (Map.Entry<Tag, List<Long>> entry1 : tag2beIds.entrySet()) {
+                                    backendsPerBucketSeq.putIfAbsent(entry1.getKey(), Lists.newArrayList());
+                                    backendsPerBucketSeq.get(entry1.getKey()).add(entry1.getValue());
+                                }
                             }
                         } else {
                             // get backends from existing backend sequence
@@ -709,6 +716,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
                             }
                         }
                     } catch (DdlException e) {
+                        Env.getCurrentColocateIndex().removeTable(id);
                         return new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     }
                 }
@@ -718,10 +726,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             partition.setIdForRestore(entry.getKey());
         }
 
-        if (groupId != null && chooseBackendsArbitrary) {
-            colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
-            Env.getCurrentEnv().getEditLog().logColocateBackendsPerBucketSeq(info);
+        if (reserveColocateWith) {
+            if (groupId != null && chooseBackendsArbitrary) {
+                colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+                ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId,
+                                                                                            backendsPerBucketSeq);
+                Env.getCurrentEnv().getEditLog().logColocateBackendsPerBucketSeq(info);
+            }
         }
 
         return Status.OK;
